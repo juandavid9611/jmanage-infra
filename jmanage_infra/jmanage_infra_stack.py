@@ -4,6 +4,7 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     aws_lambda as lambda_,
     CfnOutput,
+    aws_cognito as cognito,
     # aws_sqs as sqs,
 )
 from constructs import Construct
@@ -23,11 +24,10 @@ class JmanageInfraStack(Stack):
 
         payment_request_table = dynamodb.Table(self, "PaymentRequest",
             partition_key=dynamodb.Attribute(
-                name="payment_request_id",
+                name="id",
                 type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            time_to_live_attribute="ttl",
         )
 
         payment_request_table.add_global_secondary_index(
@@ -42,12 +42,41 @@ class JmanageInfraStack(Stack):
             ),
         )
 
+        user_table = dynamodb.Table(self, "User",
+            partition_key=dynamodb.Attribute(
+                name="id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+
+        pool = cognito.UserPool(
+            self, "JmanageUserPool", 
+            account_recovery=cognito.AccountRecovery.EMAIL_ONLY, 
+            auto_verify=cognito.AutoVerifiedAttrs(email=True), 
+            self_sign_up_enabled=True,
+            sign_in_aliases=cognito.SignInAliases(email=True),
+            password_policy=cognito.PasswordPolicy(
+                min_length=8,
+                require_digits=True,
+            ),
+            deletion_protection=True,
+            custom_attributes={
+                "role": cognito.StringAttribute(mutable=True),
+            }
+        )
+        pool_web_client = pool.add_client("jmanage-web")
+        pool_api_client = pool.add_client("jmanage-api")
+
         api = lambda_.Function(self, "API",
             runtime=lambda_.Runtime.PYTHON_3_9,
             code=lambda_.Code.from_asset("../jmanage-api/lambda_function.zip"),
             handler="app.handler",
             environment={
                 "PAYMENT_REQUEST_TABLE_NAME": payment_request_table.table_name,
+                "USER_TABLE_NAME": user_table.table_name,
+                "USER_POOL_ID": pool.user_pool_id,
+                "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
             }
         )
 
@@ -62,6 +91,8 @@ class JmanageInfraStack(Stack):
             )
         )
 
+        
+
         CfnOutput(self, "APIUrl",
             value=function_url.url,
             description="URL of the API function"
@@ -70,7 +101,28 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "PaymentRequestTableName",
             value=payment_request_table.table_name,
             description="Name of the PaymentRequest table")
+        
+        CfnOutput(self, "UserTableName",
+            value=user_table.table_name,
+            description="Name of the User table")
+        
+        CfnOutput(self, "UserPoolId",
+            value=pool.user_pool_id,
+            description="ID of the User Pool")
+        
+        CfnOutput(self, "UserPoolWebClientId",
+            value=pool_web_client.user_pool_client_id,
+            description="ID of the User Pool Client")
+        
+        CfnOutput(self, "UserPoolApiClientId",
+            value=pool_api_client.user_pool_client_id,
+            description="ID of the User Pool API Client")
+        
 
         payment_request_table.grant_read_write_data(api);
+        user_table.grant_read_write_data(api);
+        pool.grant(api, "cognito-idp:ListUsers")
+        pool.grant(api, "cognito-idp:SignUp")
+        pool.grant(api, "cognito-idp:AdminGetUser")
 
 
