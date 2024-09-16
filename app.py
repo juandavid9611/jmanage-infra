@@ -9,8 +9,8 @@ from jmanage_infra.jmanage_infra_stack import JmanageInfraStack
 app = cdk.App()
 is_prod = False
 if is_prod:
-    JmanageInfraStack(app, "JmanageInfraStack")
+    JmanageInfraStack(app, "JmanageInfraStack", 'prod')
 else:
-    JmanageInfraStack(app, "JmanageInfraStack-dev")
+    JmanageInfraStack(app, "JmanageInfraStack-dev", 'dev')
 
 app.synth()
