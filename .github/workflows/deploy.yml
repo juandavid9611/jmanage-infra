@@ -1,0 +1,88 @@
+name: Deploy Infra
+
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, prod]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout infra into a named subdir so relative paths work
+      - name: Checkout infra
+        uses: actions/checkout@v4
+        with:
+          path: jmanage-infra
+
+      # Checkout API alongside infra so CDK can find ../jmanage-api/lambda_function.zip
+      - name: Checkout API
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/jmanage-api
+          path: jmanage-api
+          token: ${{ secrets.GH_PAT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install CDK
+        run: npm install -g aws-cdk
+
+      - name: Install CDK Python dependencies
+        working-directory: jmanage-infra
+        run: pip install -r requirements.txt --quiet
+
+      - name: Build Lambda zip
+        working-directory: jmanage-api
+        run: |
+          BUILD_DIR=".lambda_build"
+          ZIP_NAME="lambda_function.zip"
+          SRC_DIRS="api builders core repositories services utils"
+          ROOT_PY_FILES="app.py auth.py di.py JWTBearer.py"
+
+          rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
+
+          pip install --only-binary=:all: -r requirements.txt -t "$BUILD_DIR" --quiet
+
+          for d in $SRC_DIRS; do
+            [ -d "$d" ] && rsync -a "$d"/ "$BUILD_DIR/$d"/ \
+              --exclude "__pycache__" --exclude "*.pyc" --exclude ".DS_Store"
+          done
+
+          for f in $ROOT_PY_FILES; do
+            [ -f "$f" ] && cp "$f" "$BUILD_DIR/"
+          done
+
+          find "$BUILD_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+          find "$BUILD_DIR" -name "*.pyc" -delete 2>/dev/null || true
+
+          (cd "$BUILD_DIR" && zip -qr "../$ZIP_NAME" .)
+          echo "✅ Lambda zip built ($(du -sh $ZIP_NAME | cut -f1))"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: CDK Deploy
+        working-directory: jmanage-infra
+        env:
+          CDK_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
+        run: |
+          echo "Deploying infra for env: $CDK_ENV"
+          cdk deploy --require-approval never

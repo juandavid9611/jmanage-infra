@@ -7,10 +7,11 @@ from jmanage_infra.jmanage_infra_stack import JmanageInfraStack
 
 
 app = cdk.App()
-is_prod = False
-if is_prod:
-    JmanageInfraStack(app, "JmanageInfraStack", 'prod')
+env_name = os.environ.get("CDK_ENV", "dev")
+
+if env_name == "prod":
+    JmanageInfraStack(app, "JmanageInfraStack", "prod")
 else:
-    JmanageInfraStack(app, "JmanageInfraStack-dev", 'dev')
+    JmanageInfraStack(app, "JmanageInfraStack-dev", "dev")
 
 app.synth()
