@@ -83,6 +83,8 @@ jobs:
         working-directory: jmanage-infra
         env:
           CDK_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
+          SLACK_WEBHOOK_URL_DEV: ${{ secrets.SLACK_WEBHOOK_URL_DEV }}
+          SLACK_WEBHOOK_URL_PROD: ${{ secrets.SLACK_WEBHOOK_URL_PROD }}
         run: |
           echo "Deploying infra for env: $CDK_ENV"
           cdk deploy --require-approval never

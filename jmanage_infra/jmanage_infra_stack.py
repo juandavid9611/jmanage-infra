@@ -1,4 +1,5 @@
 import os
+
 from aws_cdk import (
     # Duration,
     Duration,
@@ -399,13 +400,13 @@ class JmanageInfraStack(Stack):
 
         if env_name == 'prod':
             environment = {
-                "SLACK_WEBHOOK_URL": os.environ.get("SLACK_WEBHOOK_URL_PROD"),
+                "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_PROD"],
                 "APP_VERSION": "prod",
                 "LOG_LEVEL": "WARNING",
             }
         else:
             environment = {
-                "SLACK_WEBHOOK_URL": os.environ.get("SLACK_WEBHOOK_URL_DEV"),
+                "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_DEV"],
                 "APP_VERSION": "dev",
                 "LOG_LEVEL": "INFO",
             }
