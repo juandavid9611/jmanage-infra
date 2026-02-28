@@ -519,7 +519,6 @@ class JmanageInfraStack(Stack):
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
         
-        
         CfnOutput(self, "UserPoolId",
             value=pool.user_pool_id,
             description="ID of the User Pool")
@@ -531,6 +530,10 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "UserPoolApiClientId",
             value=pool_api_client.user_pool_client_id,
             description="ID of the User Pool API Client")
+
+        CfnOutput(self, "EnvUsed",
+            value=env_name,
+            description="Environment used")
         
         payment_request_table.grant_read_write_data(api);
         user_table.grant_read_write_data(api);
