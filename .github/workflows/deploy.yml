@@ -88,3 +88,27 @@ jobs:
         run: |
           echo "Deploying infra for env: $CDK_ENV"
           cdk deploy --require-approval never
+
+      - name: Notify Slack
+        if: always()
+        env:
+          SLACK_WEBHOOK: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod' || github.ref_name == 'main') && secrets.SLACK_WEBHOOK_URL_PROD || secrets.SLACK_WEBHOOK_URL_DEV }}
+          DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
+          JOB_STATUS: ${{ job.status }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then ICON="✅"; COLOR="good"
+          elif [ "$JOB_STATUS" = "failure" ]; then ICON="❌"; COLOR="danger"
+          else ICON="⚠️"; COLOR="warning"; fi
+
+          PAYLOAD=$(jq -n \
+            --arg color "$COLOR" \
+            --arg text "$ICON *jmanage-infra* · \`$DEPLOY_ENV\` — CDK deploy *$JOB_STATUS*" \
+            --arg footer "Branch: \`$BRANCH\`  ·  By $ACTOR  ·  <$RUN_URL|View run>" \
+            '{attachments:[{color:$color,text:$text,footer:$footer}]}')
+
+          curl -fsS -X POST "$SLACK_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
