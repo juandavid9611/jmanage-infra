@@ -92,13 +92,16 @@ jobs:
       - name: Notify Slack
         if: always()
         env:
-          SLACK_WEBHOOK: ${{ (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod' || github.ref_name == 'main') && secrets.SLACK_WEBHOOK_URL_PROD || secrets.SLACK_WEBHOOK_URL_DEV }}
+          SLACK_WEBHOOK_PROD: ${{ secrets.SLACK_WEBHOOK_URL_PROD }}
+          SLACK_WEBHOOK_DEV: ${{ secrets.SLACK_WEBHOOK_URL_DEV }}
           DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
           JOB_STATUS: ${{ job.status }}
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [ "$DEPLOY_ENV" = "prod" ]; then SLACK_WEBHOOK="$SLACK_WEBHOOK_PROD"; else SLACK_WEBHOOK="$SLACK_WEBHOOK_DEV"; fi
+
           if [ "$JOB_STATUS" = "success" ]; then ICON="✅"; COLOR="good"
           elif [ "$JOB_STATUS" = "failure" ]; then ICON="❌"; COLOR="danger"
           else ICON="⚠️"; COLOR="warning"; fi
