@@ -101,6 +101,9 @@ jobs:
           INPUT_ENVIRONMENT: ${{ inputs.environment }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          echo "DEV secret length: ${#SLACK_WEBHOOK_DEV}"
+          echo "PROD secret length: ${#SLACK_WEBHOOK_PROD}"
+
           if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$INPUT_ENVIRONMENT" = "prod" ] || [ "$BRANCH" = "main" ]; then
             DEPLOY_ENV="prod"; SLACK_WEBHOOK="$SLACK_WEBHOOK_PROD"
           else
