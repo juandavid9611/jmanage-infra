@@ -536,6 +536,10 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "TournamentMatchEventTableName",
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
+
+        CfnOutput(self, "NotificationTableName",
+            value=notification_table.table_name,
+            description="Name of the Notification table")
         
         CfnOutput(self, "UserPoolId",
             value=pool.user_pool_id,
