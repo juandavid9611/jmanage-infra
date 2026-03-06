@@ -239,6 +239,17 @@ class JmanageInfraStack(Stack):
             ),
         )
 
+        notification_table = dynamodb.Table(self, "Notification",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+        notification_table.add_global_secondary_index(
+            index_name="user_email_index",
+            partition_key=dynamodb.Attribute(name="user_email", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="sent_at", type=dynamodb.AttributeType.NUMBER),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
         # ── Tournaments Feature ──────────────────────────────────────────
 
         tournament_table = dynamodb.Table(
@@ -401,12 +412,18 @@ class JmanageInfraStack(Stack):
         if env_name == 'prod':
             environment = {
                 "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_PROD"],
+                "ONESIGNAL_APP_ID": os.environ["ONESIGNAL_APP_ID_PROD"],
+                "ONESIGNAL_REST_API_KEY": os.environ["ONESIGNAL_REST_API_KEY_PROD"],
+                "BASE_ACTION_URL": "https://sportsmanage.app/dashboard/",
                 "APP_VERSION": "prod",
                 "LOG_LEVEL": "WARNING",
             }
         else:
             environment = {
                 "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_DEV"],
+                "ONESIGNAL_APP_ID": os.environ["ONESIGNAL_APP_ID_DEV"],
+                "ONESIGNAL_REST_API_KEY": os.environ["ONESIGNAL_REST_API_KEY_DEV"],
+                "BASE_ACTION_URL": "https://sportsmanage.app/dashboard/",
                 "APP_VERSION": "dev",
                 "LOG_LEVEL": "INFO",
             }
@@ -432,6 +449,7 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_PLAYER_TABLE_NAME": tournament_player_table.table_name,
                 "TOURNAMENT_MATCH_TABLE_NAME": tournament_match_table.table_name,
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
+                "NOTIFICATION_TABLE_NAME": notification_table.table_name,
                 "USER_POOL_ID": pool.user_pool_id,
                 "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
                 "COURIER_AUTH_TOKEN": "pk_prod_SP8ZHJC1A549JCKN1MGYF6CWDG54",
@@ -518,6 +536,10 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "TournamentMatchEventTableName",
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
+
+        CfnOutput(self, "NotificationTableName",
+            value=notification_table.table_name,
+            description="Name of the Notification table")
         
         CfnOutput(self, "UserPoolId",
             value=pool.user_pool_id,
@@ -550,6 +572,7 @@ class JmanageInfraStack(Stack):
         tournament_player_table.grant_read_write_data(api);
         tournament_match_table.grant_read_write_data(api);
         tournament_match_event_table.grant_read_write_data(api);
+        notification_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
         pool.grant(api, "cognito-idp:SignUp")
         pool.grant(api, "cognito-idp:AdminGetUser")
