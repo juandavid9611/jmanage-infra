@@ -85,7 +85,11 @@ jobs:
           CDK_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || (github.ref_name == 'main' && 'prod' || 'dev') }}
           SLACK_WEBHOOK_URL_DEV: ${{ secrets.SLACK_WEBHOOK_URL_DEV }}
           SLACK_WEBHOOK_URL_PROD: ${{ secrets.SLACK_WEBHOOK_URL_PROD }}
-        run: |
+          ONESIGNAL_APP_ID_DEV: ${{ secrets.ONESIGNAL_APP_ID_DEV }}
+          ONESIGNAL_REST_API_KEY_DEV: ${{ secrets.ONESIGNAL_REST_API_KEY_DEV }}
+          ONESIGNAL_APP_ID_PROD: ${{ secrets.ONESIGNAL_APP_ID_PROD }}
+          ONESIGNAL_REST_API_KEY_PROD: ${{ secrets.ONESIGNAL_REST_API_KEY_PROD }}
+          n: |
           echo "Deploying infra for env: $CDK_ENV"
           cdk deploy --require-approval never
 
