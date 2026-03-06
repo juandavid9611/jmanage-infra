@@ -89,7 +89,7 @@ jobs:
           ONESIGNAL_REST_API_KEY_DEV: ${{ secrets.ONESIGNAL_REST_API_KEY_DEV }}
           ONESIGNAL_APP_ID_PROD: ${{ secrets.ONESIGNAL_APP_ID_PROD }}
           ONESIGNAL_REST_API_KEY_PROD: ${{ secrets.ONESIGNAL_REST_API_KEY_PROD }}
-          n: |
+        run: |
           echo "Deploying infra for env: $CDK_ENV"
           cdk deploy --require-approval never
 
