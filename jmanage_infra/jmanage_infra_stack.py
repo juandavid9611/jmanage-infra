@@ -10,6 +10,8 @@ from aws_cdk import (
     CfnOutput,
     aws_cognito as cognito,
     aws_s3 as s3,
+    aws_events as events,
+    aws_events_targets as targets,
     # aws_sqs as sqs,
 )
 from constructs import Construct
@@ -319,6 +321,18 @@ class JmanageInfraStack(Stack):
             sort_key=dynamodb.Attribute(name="date", type=dynamodb.AttributeType.STRING),
             projection_type=dynamodb.ProjectionType.ALL,
         )
+        tournament_match_table.add_global_secondary_index(
+            index_name="matchweek_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="matchweek", type=dynamodb.AttributeType.NUMBER),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_match_table.add_global_secondary_index(
+            index_name="status_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="status", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
 
         tournament_match_event_table = dynamodb.Table(
             self, "TournamentMatchEvent",
@@ -449,6 +463,8 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_PLAYER_TABLE_NAME": tournament_player_table.table_name,
                 "TOURNAMENT_MATCH_TABLE_NAME": tournament_match_table.table_name,
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
+                "MATCH_MATCHWEEK_GSI": "matchweek_index",
+                "MATCH_STATUS_GSI": "status_index",
                 "NOTIFICATION_TABLE_NAME": notification_table.table_name,
                 "USER_POOL_ID": pool.user_pool_id,
                 "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
@@ -475,6 +491,37 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "APIUrl",
             value=function_url.url,
             description="URL of the API function"
+        )
+
+        # ── Scheduled payment processor ──────────────────────────────────────
+        payment_scheduler = lambda_.Function(self, "PaymentScheduler",
+            function_name=f"jmanage-payment-scheduler-{env_name}",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            code=lambda_.Code.from_asset("../jmanage-api/lambda_function.zip"),
+            handler="scheduled_handler.handler",
+            timeout=Duration.seconds(300),
+            memory_size=256,
+            environment={
+                "PAYMENT_REQUEST_TABLE_NAME": payment_request_table.table_name,
+                "NOTIFICATION_TABLE_NAME": notification_table.table_name,
+                "USER_TABLE_NAME": user_table.table_name,
+                "MEMBERSHIPS_TABLE_NAME": memberships_table.table_name,
+                "BUCKET_NAME": "jmanage-bucket",
+                "COURIER_AUTH_TOKEN": "pk_prod_SP8ZHJC1A549JCKN1MGYF6CWDG54",
+                **{k: environment[k] for k in ("SLACK_WEBHOOK_URL", "ONESIGNAL_APP_ID", "ONESIGNAL_REST_API_KEY")},
+                "ENV": env_name,
+            }
+        )
+
+        payment_request_table.grant_read_write_data(payment_scheduler)
+        notification_table.grant_read_write_data(payment_scheduler)
+        user_table.grant_read_write_data(payment_scheduler)
+        memberships_table.grant_read_write_data(payment_scheduler)
+
+        # 1am US Eastern = 06:00 UTC
+        events.Rule(self, "PaymentSchedulerRule",
+            schedule=events.Schedule.cron(hour="6", minute="0"),
+            targets=[targets.LambdaFunction(payment_scheduler)]
         )
 
         CfnOutput(self, "PaymentRequestTableName",
@@ -556,6 +603,10 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "EnvUsed",
             value=env_name,
             description="Environment used")
+
+        CfnOutput(self, "matchweek_index",
+            value="Matchweek index",
+            description="Name of the matchweek index")
         
         payment_request_table.grant_read_write_data(api);
         user_table.grant_read_write_data(api);
