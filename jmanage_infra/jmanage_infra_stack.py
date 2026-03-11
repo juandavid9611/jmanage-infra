@@ -428,7 +428,7 @@ class JmanageInfraStack(Stack):
                 "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_PROD"],
                 "ONESIGNAL_APP_ID": os.environ["ONESIGNAL_APP_ID_PROD"],
                 "ONESIGNAL_REST_API_KEY": os.environ["ONESIGNAL_REST_API_KEY_PROD"],
-                "BASE_ACTION_URL": "https://sportsmanage.app/dashboard/",
+                "BASE_ACTION_URL": "https://sportsmanage.app",
                 "APP_VERSION": "prod",
                 "LOG_LEVEL": "WARNING",
             }
@@ -437,7 +437,7 @@ class JmanageInfraStack(Stack):
                 "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_DEV"],
                 "ONESIGNAL_APP_ID": os.environ["ONESIGNAL_APP_ID_DEV"],
                 "ONESIGNAL_REST_API_KEY": os.environ["ONESIGNAL_REST_API_KEY_DEV"],
-                "BASE_ACTION_URL": "https://sportsmanage.app/dashboard/",
+                "BASE_ACTION_URL": "https://dev-jmanage-web.vercel.app",
                 "APP_VERSION": "dev",
                 "LOG_LEVEL": "INFO",
             }
