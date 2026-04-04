@@ -12,7 +12,6 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_events as events,
     aws_events_targets as targets,
-    # aws_sqs as sqs,
 )
 from constructs import Construct
 
@@ -20,14 +19,6 @@ class JmanageInfraStack(Stack):
 
     def __init__(self, scope: Construct, construct_id: str, env_name: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        # The code that defines your stack goes here
-
-        # example resource
-        # queue = sqs.Queue(
-        #     self, "JmanageInfraQueue",
-        #     visibility_timeout=Duration.seconds(300),
-        # )
 
         payment_request_table = dynamodb.Table(self, "PaymentRequest",
             partition_key=dynamodb.Attribute(
@@ -252,6 +243,22 @@ class JmanageInfraStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        # ── Votations Feature ───────────────────────────────────────────
+
+        votation_table = dynamodb.Table(
+            self, "Votation",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
+        )
+        votation_table.add_global_secondary_index(
+            index_name="account_id_index",
+            partition_key=dynamodb.Attribute(name="account_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
         # ── Tournaments Feature ──────────────────────────────────────────
 
         tournament_table = dynamodb.Table(
@@ -463,6 +470,7 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_PLAYER_TABLE_NAME": tournament_player_table.table_name,
                 "TOURNAMENT_MATCH_TABLE_NAME": tournament_match_table.table_name,
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
+                "VOTATION_TABLE_NAME": votation_table.table_name,
                 "MATCH_MATCHWEEK_GSI": "matchweek_index",
                 "MATCH_STATUS_GSI": "status_index",
                 "NOTIFICATION_TABLE_NAME": notification_table.table_name,
@@ -584,6 +592,10 @@ class JmanageInfraStack(Stack):
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
 
+        CfnOutput(self, "VotationTableName",
+            value=votation_table.table_name,
+            description="Name of the Votation table")
+
         CfnOutput(self, "NotificationTableName",
             value=notification_table.table_name,
             description="Name of the Notification table")
@@ -623,6 +635,7 @@ class JmanageInfraStack(Stack):
         tournament_player_table.grant_read_write_data(api);
         tournament_match_table.grant_read_write_data(api);
         tournament_match_event_table.grant_read_write_data(api);
+        votation_table.grant_read_write_data(api);
         notification_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
         pool.grant(api, "cognito-idp:SignUp")
