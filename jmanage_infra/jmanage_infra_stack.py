@@ -10,7 +10,8 @@ from aws_cdk import (
     CfnOutput,
     aws_cognito as cognito,
     aws_s3 as s3,
-    # aws_sqs as sqs,
+    aws_events as events,
+    aws_events_targets as targets,
 )
 from constructs import Construct
 
@@ -18,14 +19,6 @@ class JmanageInfraStack(Stack):
 
     def __init__(self, scope: Construct, construct_id: str, env_name: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        # The code that defines your stack goes here
-
-        # example resource
-        # queue = sqs.Queue(
-        #     self, "JmanageInfraQueue",
-        #     visibility_timeout=Duration.seconds(300),
-        # )
 
         payment_request_table = dynamodb.Table(self, "PaymentRequest",
             partition_key=dynamodb.Attribute(
@@ -250,6 +243,22 @@ class JmanageInfraStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        # ── Votations Feature ───────────────────────────────────────────
+
+        votation_table = dynamodb.Table(
+            self, "Votation",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
+        )
+        votation_table.add_global_secondary_index(
+            index_name="account_id_index",
+            partition_key=dynamodb.Attribute(name="account_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
         # ── Tournaments Feature ──────────────────────────────────────────
 
         tournament_table = dynamodb.Table(
@@ -317,6 +326,18 @@ class JmanageInfraStack(Stack):
             index_name="tournament_index",
             partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="date", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_match_table.add_global_secondary_index(
+            index_name="matchweek_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="matchweek", type=dynamodb.AttributeType.NUMBER),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_match_table.add_global_secondary_index(
+            index_name="status_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="status", type=dynamodb.AttributeType.STRING),
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
@@ -414,7 +435,7 @@ class JmanageInfraStack(Stack):
                 "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_PROD"],
                 "ONESIGNAL_APP_ID": os.environ["ONESIGNAL_APP_ID_PROD"],
                 "ONESIGNAL_REST_API_KEY": os.environ["ONESIGNAL_REST_API_KEY_PROD"],
-                "BASE_ACTION_URL": "https://sportsmanage.app/dashboard/",
+                "BASE_ACTION_URL": "https://sportsmanage.app",
                 "APP_VERSION": "prod",
                 "LOG_LEVEL": "WARNING",
             }
@@ -423,7 +444,7 @@ class JmanageInfraStack(Stack):
                 "SLACK_WEBHOOK_URL": os.environ["SLACK_WEBHOOK_URL_DEV"],
                 "ONESIGNAL_APP_ID": os.environ["ONESIGNAL_APP_ID_DEV"],
                 "ONESIGNAL_REST_API_KEY": os.environ["ONESIGNAL_REST_API_KEY_DEV"],
-                "BASE_ACTION_URL": "https://sportsmanage.app/dashboard/",
+                "BASE_ACTION_URL": "https://dev-jmanage-web.vercel.app",
                 "APP_VERSION": "dev",
                 "LOG_LEVEL": "INFO",
             }
@@ -449,6 +470,9 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_PLAYER_TABLE_NAME": tournament_player_table.table_name,
                 "TOURNAMENT_MATCH_TABLE_NAME": tournament_match_table.table_name,
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
+                "VOTATION_TABLE_NAME": votation_table.table_name,
+                "MATCH_MATCHWEEK_GSI": "matchweek_index",
+                "MATCH_STATUS_GSI": "status_index",
                 "NOTIFICATION_TABLE_NAME": notification_table.table_name,
                 "USER_POOL_ID": pool.user_pool_id,
                 "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
@@ -475,6 +499,37 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "APIUrl",
             value=function_url.url,
             description="URL of the API function"
+        )
+
+        # ── Scheduled payment processor ──────────────────────────────────────
+        payment_scheduler = lambda_.Function(self, "PaymentScheduler",
+            function_name=f"jmanage-payment-scheduler-{env_name}",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            code=lambda_.Code.from_asset("../jmanage-api/lambda_function.zip"),
+            handler="scheduled_handler.handler",
+            timeout=Duration.seconds(300),
+            memory_size=256,
+            environment={
+                "PAYMENT_REQUEST_TABLE_NAME": payment_request_table.table_name,
+                "NOTIFICATION_TABLE_NAME": notification_table.table_name,
+                "USER_TABLE_NAME": user_table.table_name,
+                "MEMBERSHIPS_TABLE_NAME": memberships_table.table_name,
+                "BUCKET_NAME": "jmanage-bucket",
+                "COURIER_AUTH_TOKEN": "pk_prod_SP8ZHJC1A549JCKN1MGYF6CWDG54",
+                **{k: environment[k] for k in ("SLACK_WEBHOOK_URL", "ONESIGNAL_APP_ID", "ONESIGNAL_REST_API_KEY")},
+                "ENV": env_name,
+            }
+        )
+
+        payment_request_table.grant_read_write_data(payment_scheduler)
+        notification_table.grant_read_write_data(payment_scheduler)
+        user_table.grant_read_write_data(payment_scheduler)
+        memberships_table.grant_read_write_data(payment_scheduler)
+
+        # 1am US Eastern = 06:00 UTC
+        events.Rule(self, "PaymentSchedulerRule",
+            schedule=events.Schedule.cron(hour="6", minute="0"),
+            targets=[targets.LambdaFunction(payment_scheduler)]
         )
 
         CfnOutput(self, "PaymentRequestTableName",
@@ -537,6 +592,10 @@ class JmanageInfraStack(Stack):
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
 
+        CfnOutput(self, "VotationTableName",
+            value=votation_table.table_name,
+            description="Name of the Votation table")
+
         CfnOutput(self, "NotificationTableName",
             value=notification_table.table_name,
             description="Name of the Notification table")
@@ -556,6 +615,10 @@ class JmanageInfraStack(Stack):
         CfnOutput(self, "EnvUsed",
             value=env_name,
             description="Environment used")
+
+        CfnOutput(self, "matchweek_index",
+            value="Matchweek index",
+            description="Name of the matchweek index")
         
         payment_request_table.grant_read_write_data(api);
         user_table.grant_read_write_data(api);
@@ -572,6 +635,7 @@ class JmanageInfraStack(Stack):
         tournament_player_table.grant_read_write_data(api);
         tournament_match_table.grant_read_write_data(api);
         tournament_match_event_table.grant_read_write_data(api);
+        votation_table.grant_read_write_data(api);
         notification_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
         pool.grant(api, "cognito-idp:SignUp")
