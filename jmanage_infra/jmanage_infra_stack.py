@@ -334,12 +334,12 @@ class JmanageInfraStack(Stack):
             sort_key=dynamodb.Attribute(name="matchweek", type=dynamodb.AttributeType.NUMBER),
             projection_type=dynamodb.ProjectionType.ALL,
         )
-        # tournament_match_table.add_global_secondary_index(
-        #     index_name="status_index",
-        #     partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
-        #     sort_key=dynamodb.Attribute(name="status", type=dynamodb.AttributeType.STRING),
-        #     projection_type=dynamodb.ProjectionType.ALL,
-        # )
+        tournament_match_table.add_global_secondary_index(
+            index_name="status_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="status", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
 
         tournament_match_event_table = dynamodb.Table(
             self, "TournamentMatchEvent",
