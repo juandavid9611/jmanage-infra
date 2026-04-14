@@ -485,15 +485,9 @@ class JmanageInfraStack(Stack):
             memory_size=512
         )
 
+
         function_url = api.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.NONE,
-            cors=lambda_.FunctionUrlCorsOptions(
-                # Allow this to be called from websites on https://example.com.
-                # Can also be ['*'] to allow all domain.
-                allowed_origins=["*"],
-                allowed_methods=[lambda_.HttpMethod.ALL],
-                allowed_headers=["*"],
-            )
+            auth_type=lambda_.FunctionUrlAuthType.NONE
         )
 
         CfnOutput(self, "APIUrl",
