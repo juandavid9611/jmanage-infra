@@ -485,12 +485,20 @@ class JmanageInfraStack(Stack):
             memory_size=512
         )
 
+        origins = [
+            "http://localhost",
+            "http://localhost:3031",
+            "http://localhost:3030",
+            "https://dev-jmanage-web.vercel.app",
+            "https://sportsmanage.app"
+        ]
+
         function_url = api.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.NONE,
             cors=lambda_.FunctionUrlCorsOptions(
                 # Allow this to be called from websites on https://example.com.
                 # Can also be ['*'] to allow all domain.
-                allowed_origins=["*"],
+                allowed_origins=origins,
                 allowed_methods=[lambda_.HttpMethod.ALL],
                 allowed_headers=["*"],
             )
