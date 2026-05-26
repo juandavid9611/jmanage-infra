@@ -355,6 +355,31 @@ class JmanageInfraStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        tournament_invitation_table = dynamodb.Table(
+            self, "TournamentInvitation",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
+        )
+        tournament_invitation_table.add_global_secondary_index(
+            index_name="account_id_index",
+            partition_key=dynamodb.Attribute(name="account_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_invitation_table.add_global_secondary_index(
+            index_name="token_index",
+            partition_key=dynamodb.Attribute(name="token", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_invitation_table.add_global_secondary_index(
+            index_name="tournament_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
         # GSI1: categoría + created_at (newest)
         product_table.add_global_secondary_index(
             index_name="GSI1_CategoryNewest",
@@ -470,6 +495,7 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_PLAYER_TABLE_NAME": tournament_player_table.table_name,
                 "TOURNAMENT_MATCH_TABLE_NAME": tournament_match_table.table_name,
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
+                "TOURNAMENT_INVITATION_TABLE_NAME": tournament_invitation_table.table_name,
                 "VOTATION_TABLE_NAME": votation_table.table_name,
                 "MATCH_MATCHWEEK_GSI": "matchweek_index",
                 "MATCH_STATUS_GSI": "status_index",
@@ -586,6 +612,10 @@ class JmanageInfraStack(Stack):
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
 
+        CfnOutput(self, "TournamentInvitationTableName",
+            value=tournament_invitation_table.table_name,
+            description="Name of the TournamentInvitation table")
+
         CfnOutput(self, "VotationTableName",
             value=votation_table.table_name,
             description="Name of the Votation table")
@@ -629,6 +659,7 @@ class JmanageInfraStack(Stack):
         tournament_player_table.grant_read_write_data(api);
         tournament_match_table.grant_read_write_data(api);
         tournament_match_event_table.grant_read_write_data(api);
+        tournament_invitation_table.grant_read_write_data(api);
         votation_table.grant_read_write_data(api);
         notification_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
