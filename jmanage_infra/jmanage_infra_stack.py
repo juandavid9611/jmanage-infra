@@ -503,6 +503,7 @@ class JmanageInfraStack(Stack):
                 "USER_POOL_ID": pool.user_pool_id,
                 "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
                 "COURIER_AUTH_TOKEN": "pk_prod_SP8ZHJC1A549JCKN1MGYF6CWDG54",
+                "COURIER_TOURNAMENTS_AUTH_TOKEN": "pk_3HNYYZ6N41MNN4Q9HEEDG5EGTP3M",
                 "BUCKET_NAME": "jmanage-bucket",
                 "ENV": env_name,
                 **environment
