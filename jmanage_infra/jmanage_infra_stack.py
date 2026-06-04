@@ -670,3 +670,7 @@ class JmanageInfraStack(Stack):
         pool.grant(api, "cognito-idp:AdminDeleteUser")
         pool.grant(api, "cognito-idp:AdminDisableUser")
         pool.grant(api, "cognito-idp:AdminEnableUser")
+        # Team-owner invitation accept flow creates a confirmed user with a permanent
+        # password (see repositories/cognito_idp_actions.py:admin_create_confirmed_user).
+        pool.grant(api, "cognito-idp:AdminCreateUser")
+        pool.grant(api, "cognito-idp:AdminSetUserPassword")
