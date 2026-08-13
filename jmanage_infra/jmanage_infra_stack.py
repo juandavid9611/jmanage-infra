@@ -243,6 +243,11 @@ class JmanageInfraStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        donation_table = dynamodb.Table(self, "Donation",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+
         # ── Votations Feature ───────────────────────────────────────────
 
         votation_table = dynamodb.Table(
@@ -352,6 +357,31 @@ class JmanageInfraStack(Stack):
             index_name="match_index",
             partition_key=dynamodb.Attribute(name="match_id", type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name="event_index", type=dynamodb.AttributeType.NUMBER),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
+        tournament_invitation_table = dynamodb.Table(
+            self, "TournamentInvitation",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
+        )
+        tournament_invitation_table.add_global_secondary_index(
+            index_name="account_id_index",
+            partition_key=dynamodb.Attribute(name="account_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_invitation_table.add_global_secondary_index(
+            index_name="token_index",
+            partition_key=dynamodb.Attribute(name="token", type=dynamodb.AttributeType.STRING),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+        tournament_invitation_table.add_global_secondary_index(
+            index_name="tournament_index",
+            partition_key=dynamodb.Attribute(name="tournament_id", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
@@ -470,13 +500,16 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_PLAYER_TABLE_NAME": tournament_player_table.table_name,
                 "TOURNAMENT_MATCH_TABLE_NAME": tournament_match_table.table_name,
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
+                "TOURNAMENT_INVITATION_TABLE_NAME": tournament_invitation_table.table_name,
                 "VOTATION_TABLE_NAME": votation_table.table_name,
                 "MATCH_MATCHWEEK_GSI": "matchweek_index",
                 "MATCH_STATUS_GSI": "status_index",
                 "NOTIFICATION_TABLE_NAME": notification_table.table_name,
+                "DONATION_TABLE_NAME": donation_table.table_name,
                 "USER_POOL_ID": pool.user_pool_id,
                 "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
                 "COURIER_AUTH_TOKEN": "pk_prod_SP8ZHJC1A549JCKN1MGYF6CWDG54",
+                "COURIER_TOURNAMENTS_AUTH_TOKEN": "pk_3HNYYZ6N41MNN4Q9HEEDG5EGTP3M",
                 "BUCKET_NAME": "jmanage-bucket",
                 "ENV": env_name,
                 **environment
@@ -586,6 +619,10 @@ class JmanageInfraStack(Stack):
             value=tournament_match_event_table.table_name,
             description="Name of the TournamentMatchEvent table")
 
+        CfnOutput(self, "TournamentInvitationTableName",
+            value=tournament_invitation_table.table_name,
+            description="Name of the TournamentInvitation table")
+
         CfnOutput(self, "VotationTableName",
             value=votation_table.table_name,
             description="Name of the Votation table")
@@ -629,8 +666,10 @@ class JmanageInfraStack(Stack):
         tournament_player_table.grant_read_write_data(api);
         tournament_match_table.grant_read_write_data(api);
         tournament_match_event_table.grant_read_write_data(api);
+        tournament_invitation_table.grant_read_write_data(api);
         votation_table.grant_read_write_data(api);
         notification_table.grant_read_write_data(api);
+        donation_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
         pool.grant(api, "cognito-idp:SignUp")
         pool.grant(api, "cognito-idp:AdminGetUser")
@@ -638,3 +677,7 @@ class JmanageInfraStack(Stack):
         pool.grant(api, "cognito-idp:AdminDeleteUser")
         pool.grant(api, "cognito-idp:AdminDisableUser")
         pool.grant(api, "cognito-idp:AdminEnableUser")
+        # Team-owner invitation accept flow creates a confirmed user with a permanent
+        # password (see repositories/cognito_idp_actions.py:admin_create_confirmed_user).
+        pool.grant(api, "cognito-idp:AdminCreateUser")
+        pool.grant(api, "cognito-idp:AdminSetUserPassword")
