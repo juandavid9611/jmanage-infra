@@ -243,6 +243,11 @@ class JmanageInfraStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        donation_table = dynamodb.Table(self, "Donation",
+            partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+
         # ── Votations Feature ───────────────────────────────────────────
 
         votation_table = dynamodb.Table(
@@ -500,6 +505,7 @@ class JmanageInfraStack(Stack):
                 "MATCH_MATCHWEEK_GSI": "matchweek_index",
                 "MATCH_STATUS_GSI": "status_index",
                 "NOTIFICATION_TABLE_NAME": notification_table.table_name,
+                "DONATION_TABLE_NAME": donation_table.table_name,
                 "USER_POOL_ID": pool.user_pool_id,
                 "USER_POOL_API_CLIENT_ID": pool_api_client.user_pool_client_id,
                 "COURIER_AUTH_TOKEN": "pk_prod_SP8ZHJC1A549JCKN1MGYF6CWDG54",
@@ -663,6 +669,7 @@ class JmanageInfraStack(Stack):
         tournament_invitation_table.grant_read_write_data(api);
         votation_table.grant_read_write_data(api);
         notification_table.grant_read_write_data(api);
+        donation_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
         pool.grant(api, "cognito-idp:SignUp")
         pool.grant(api, "cognito-idp:AdminGetUser")
