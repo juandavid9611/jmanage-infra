@@ -246,6 +246,8 @@ class JmanageInfraStack(Stack):
         donation_table = dynamodb.Table(self, "Donation",
             partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            removal_policy=RemovalPolicy.RETAIN,
+            point_in_time_recovery=True,
         )
 
         # ── Votations Feature ───────────────────────────────────────────
