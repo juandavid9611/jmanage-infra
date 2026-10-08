@@ -63,3 +63,22 @@ def assert_dev_tables(dev_tables: dict[str, str], prod_tables: dict[str, str]) -
     for key, name in prod_tables.items():
         if is_dev_table_name(name):
             raise SafetyError(f"La tabla fuente de {key!r} pertenece al stack dev.")
+
+
+# Personas creadas por create_dev_users.py (identificadas por email). Un reset nunca las borra.
+# Los emails de datos scrubbeados son user<N>@example.test, asi que no colisionan.
+PERSONA_EMAILS = frozenset({
+    "dev.admin@example.test",
+    "dev.coach@example.test",
+    "dev.user@example.test",
+    "dev.teamowner@example.test",
+    "dev.torneos@example.test",
+})
+PERSONA_ACCOUNT_ID = "dev-torneos"  # cuenta tipo torneo creada por create_dev_users.py
+
+
+def assert_syncable_account(account_id: str) -> None:
+    if not account_id or not account_id.strip():
+        raise SafetyError("--account-id vacio.")
+    if account_id == PERSONA_ACCOUNT_ID:
+        raise SafetyError(f"{PERSONA_ACCOUNT_ID!r} es la cuenta de personas de dev; no existe en prod.")

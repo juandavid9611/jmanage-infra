@@ -96,6 +96,15 @@ class DevWriter:
                 batch.put_item(Item=item)
         return len(items)
 
+    def delete_many(self, table_key: str, keys: list[dict]) -> int:
+        name = self._dev_tables[table_key]
+        safety.assert_dev_tables({table_key: name}, {})
+        table = self._dynamodb.Table(name)
+        with table.batch_writer(overwrite_by_pkeys=key_attrs(table_key)) as batch:
+            for key in keys:
+                batch.delete_item(Key=key)
+        return len(keys)
+
 
 def stack_outputs(cf: Any, stack_name: str) -> dict[str, str]:
     stacks = cf.describe_stacks(StackName=stack_name)["Stacks"]
@@ -152,8 +161,184 @@ def copy_assets(s3: Any, bucket: str, assets: set[tuple[str, str]], confirm: boo
     return result
 
 
+# ---- Sincronizacion de UNA cuenta (--account-id / --reset) ---------------------------------
+# Como se determina a que cuenta pertenece una fila (ver README):
+DIRECT_ATTR: dict[str, str] = {
+    "account": "id", "memberships": "ACCOUNT_ID",
+    **{k: "account_id" for k in (
+        "workspace", "payment_request", "calendar", "tour", "product", "order", "file",
+        "tournament", "votation", "tournament_invitation", "training_session",
+        "club_tournament", "club_roster", "club_match")},
+}
+BY_TOURNAMENT = {"tournament_team", "tournament_player", "tournament_match"}  # via tournament_id
+BY_MATCH = {"tournament_match_event"}                                         # via match_id
+# Sin atributo de cuenta ni padre: se omiten con aviso.
+SKIPPED_TABLES = {"donation": "campana global sin atributo de cuenta"}
+# Tablas donde un reset NUNCA borra (se comparten entre cuentas o son la cuenta misma).
+NO_DELETE = {"user", "account"}
+MAX_DELETE_FRACTION = 0.5
+
+
+def item_key(table_key: str, item: dict) -> tuple:
+    return tuple(item.get(a) for a in key_attrs(table_key))
+
+
+def key_dict(table_key: str, item: dict) -> dict:
+    return {a: item[a] for a in key_attrs(table_key)}
+
+
+def validate_flags(args: argparse.Namespace) -> None:
+    account_id = getattr(args, "account_id", None)
+    reset = getattr(args, "reset", False)
+    if account_id:
+        safety.assert_syncable_account(account_id)
+        if getattr(args, "limit", None):
+            raise safety.SafetyError("--limit no es compatible con --account-id (rompe la copia exacta).")
+    if reset and not account_id:
+        raise safety.SafetyError("--reset requiere --account-id.")
+    if reset and args.confirm and not getattr(args, "i_understand_this_deletes", False):
+        raise safety.SafetyError("--reset --confirm borra datos de dev: agrega --i-understand-this-deletes.")
+    if getattr(args, "force_large_delete", False) and not reset:
+        raise safety.SafetyError("--force-large-delete solo aplica con --reset.")
+
+
+class AccountScope:
+    """Resuelve que filas pertenecen a la cuenta, en prod (crudas) y en dev (scrubbeadas)."""
+
+    def __init__(self, account_id: str):
+        self.account_id = account_id
+        self.tournaments: set = set()
+        self.matches: set = set()
+        self.emails: set = set()
+        self.member_user_ids: set = set()
+
+    def owns(self, table_key: str, item: dict) -> bool:
+        attr = DIRECT_ATTR.get(table_key)
+        if attr:
+            return item.get(attr) == self.account_id
+        if table_key in BY_TOURNAMENT:
+            return item.get("tournament_id") in self.tournaments
+        if table_key in BY_MATCH:
+            return item.get("match_id") in self.matches
+        if table_key == "notification":
+            return item.get("user_email") in self.emails
+        if table_key == "user":
+            return item.get("id") in self.member_user_ids
+        return False
+
+
+def _scan(ddb: Any, name: str) -> list[dict]:
+    return list(ReadOnlyTable(ddb.Table(name)).scan_items())
+
+
+class _Cache:
+    def __init__(self, ddb: Any, tables: dict[str, str]):
+        self._ddb, self._tables, self._c = ddb, tables, {}
+
+    def get(self, key: str) -> list[dict]:
+        if key not in self._c:
+            self._c[key] = _scan(self._ddb, self._tables[key])
+        return self._c[key]
+
+
+def _derive_ownership(scope: AccountScope, cache: _Cache) -> None:
+    """Rellena torneos/partidos (ids) a partir de las filas directas de la cuenta."""
+    scope.tournaments = {t["id"] for t in cache.get("tournament") if t.get("account_id") == scope.account_id}
+    scope.matches = {m["id"] for m in cache.get("tournament_match") if m.get("tournament_id") in scope.tournaments}
+
+
+def plan_account(args: argparse.Namespace, ddb: Any, prod_tables: dict[str, str], dev_tables: dict[str, str],
+                 selected: list[str], scrubber: Scrubber, user_items: list[dict]) -> dict[str, Any]:
+    """Calcula (sin escribir) upserts/borrados por tabla para que dev == snapshot de prod."""
+    acc = args.account_id
+    prod, dev = _Cache(ddb, prod_tables), _Cache(ddb, dev_tables)
+
+    # --- origen (prod, crudo) ---
+    src = AccountScope(acc)
+    src.member_user_ids = {m["USER_ID"] for m in prod.get("memberships") if m.get("ACCOUNT_ID") == acc and m.get("USER_ID")}
+    _derive_ownership(src, prod)
+    src.emails = {u["email"] for u in user_items if u.get("id") in src.member_user_ids and u.get("email")}
+
+    source_set: dict[str, dict[tuple, dict]] = {}
+    for key in selected:
+        if key in SKIPPED_TABLES:
+            continue
+        rows = user_items if key == "user" else prod.get(key)
+        out: dict[tuple, dict] = {}
+        for item in rows:
+            if not src.owns(key, item):
+                continue
+            scrubbed = scrubber.scrub_item(key, item)
+            missing = [a for a in key_attrs(key) if not scrubbed.get(a)]
+            if missing:
+                raise safety.SafetyError(f"Item sin clave primaria tras el scrub en {key}: faltan {missing}.")
+            out[item_key(key, scrubbed)] = scrubbed
+        source_set[key] = out
+
+    # --- destino (dev, ya scrubbeado) ---
+    dst = AccountScope(acc)
+    dev_users = dev.get("user")
+    persona_ids = {u["id"] for u in dev_users if u.get("email") in safety.PERSONA_EMAILS}
+    dev_members = [m for m in dev.get("memberships") if m.get("ACCOUNT_ID") == acc]
+    persona_ws = {m.get("WORKSPACE_ID") for m in dev_members if m.get("USER_ID") in persona_ids}
+    _derive_ownership(dst, dev)
+    dst.member_user_ids = {m["USER_ID"] for m in dev_members if m.get("USER_ID") and m["USER_ID"] not in persona_ids}
+    src_user_scrubbed = [scrubber.scrub_item("user", u) for u in user_items if u.get("id") in src.member_user_ids]
+    dst.emails = ({u["email"] for u in dev_users if u.get("id") in dst.member_user_ids and u.get("email")}
+                  | {u["email"] for u in src_user_scrubbed if u.get("email")}) - safety.PERSONA_EMAILS
+
+    def preserved(key: str, item: dict) -> bool:
+        if key == "memberships":
+            return item.get("USER_ID") in persona_ids
+        if key == "workspace":
+            return item.get("id") in persona_ws
+        return False
+
+    plan: dict[str, dict[str, Any]] = {}
+    owned_total = deletes_total = 0
+    for key in selected:
+        if key in SKIPPED_TABLES:
+            continue
+        source = source_set[key]
+        dev_rows = {item_key(key, i): i for i in dev.get(key)}
+        upserts = [it for k, it in source.items() if dev_rows.get(k) != it]
+        unchanged = len(source) - len(upserts)
+        deletes: list[dict] = []
+        if args.reset and key not in NO_DELETE:
+            owned = [i for i in dev_rows.values() if dst.owns(key, i) and not preserved(key, i)]
+            owned_total += len(owned)
+            deletes = [i for i in owned if item_key(key, i) not in source]
+            deletes_total += len(deletes)
+        plan[key] = {"source": len(source), "upserts": upserts, "unchanged": unchanged, "deletes": deletes}
+
+    if args.reset and deletes_total and deletes_total > owned_total * MAX_DELETE_FRACTION \
+            and not getattr(args, "force_large_delete", False):
+        raise safety.SafetyError(
+            f"El reset borraria {deletes_total} de {owned_total} filas de la cuenta en dev (>50%). "
+            "Verifica la cuenta o usa --force-large-delete."
+        )
+    return {"plan": plan, "dst": dst}
+
+
+def apply_account_plan(args: argparse.Namespace, writer: DevWriter, planned: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    dst: AccountScope = planned["dst"]
+    for key, p in planned["plan"].items():
+        written = deleted = 0
+        if args.confirm:
+            written = writer.put_many(key, p["upserts"])
+            for item in p["deletes"]:  # re-chequeo sobre el item de dev justo antes de borrar
+                if key in NO_DELETE or not dst.owns(key, item):
+                    raise safety.SafetyError(f"Borrado rechazado en {key}: la fila no pertenece a la cuenta.")
+            deleted = writer.delete_many(key, [key_dict(key, i) for i in p["deletes"]])
+        result[key] = {"read": p["source"], "upsert": len(p["upserts"]), "unchanged": p["unchanged"],
+                       "delete": len(p["deletes"]), "written": written, "deleted": deleted}
+    return result
+
+
 def run(args: argparse.Namespace, session: Any) -> dict[str, Any]:
     safety.assert_region(args.region)
+    validate_flags(args)
     cf = session.client("cloudformation", region_name=args.region)
 
     prod_out = stack_outputs(cf, args.prod_stack)
@@ -181,6 +366,17 @@ def run(args: argparse.Namespace, session: Any) -> dict[str, Any]:
     scrubber = Scrubber(salt=salt, known_user_ids=known_ids)
 
     summary: dict[str, Any] = {"mode": "confirm" if args.confirm else "dry-run", "tables": {}}
+    account_id = getattr(args, "account_id", None)
+    if account_id:
+        planned = plan_account(args, ddb, prod_tables, dev_tables, selected, scrubber, user_items)
+        summary["account_id_set"] = True
+        summary["reset"] = bool(args.reset)
+        summary["tables"] = apply_account_plan(args, writer, planned)
+        summary["skipped"] = {k: v for k, v in SKIPPED_TABLES.items() if k in selected}
+        s3 = session.client("s3", region_name=args.region)
+        summary["assets"] = copy_assets(s3, args.bucket, scrubber.assets, args.confirm)
+        summary["pii"] = pii_report(scrubber)
+        return summary
     for key in selected:
         if key == "user":
             source = iter(user_items)
@@ -213,6 +409,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bucket", default=safety.DEFAULT_BUCKET)
     p.add_argument("--tables", nargs="*", help="Limitar a estas claves de tabla (ej. user product)")
     p.add_argument("--limit", type=int, help="Maximo de items por tabla (muestreo)")
+    p.add_argument("--account-id", help="Copiar solo los datos de esta cuenta de prod")
+    p.add_argument("--reset", action="store_true",
+                   help="Con --account-id: ademas borra de dev las filas de esa cuenta que no existen en prod")
+    p.add_argument("--i-understand-this-deletes", dest="i_understand_this_deletes", action="store_true",
+                   help="Requerido con --reset --confirm")
+    p.add_argument("--force-large-delete", action="store_true",
+                   help="Permite borrar mas del 50%% de las filas de la cuenta en dev")
     p.add_argument("--confirm", action="store_true", help="Escribir en dev. Sin esto es dry-run.")
     return p
 
@@ -220,7 +423,13 @@ def build_parser() -> argparse.ArgumentParser:
 def print_summary(summary: dict[str, Any]) -> None:
     print(f"Modo: {summary['mode']}")
     for key, info in summary["tables"].items():
-        print(f"  {key}: leidos={info['read']} escritos={info['written']}")
+        if "upsert" in info:
+            print(f"  {key}: origen={info['read']} upsert={info['upsert']} sin_cambios={info['unchanged']} "
+                  f"borrar={info['delete']} (escritos={info['written']} borrados={info['deleted']})")
+        else:
+            print(f"  {key}: leidos={info['read']} escritos={info['written']}")
+    for key, why in summary.get("skipped", {}).items():
+        print(f"  AVISO {key}: omitida ({why})")
     a = summary["assets"]
     print(f"S3: planificados={a['planned']} copiados={a['copied']} faltantes={a['missing']}")
     pii = summary["pii"]
@@ -238,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
 
     session = boto3.Session(profile_name=args.profile, region_name=args.region)
     try:
+        validate_flags(args)
         summary = run(args, session)
     except safety.SafetyError as exc:
         print(f"RECHAZADO: {exc}", file=sys.stderr)

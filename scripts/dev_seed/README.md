@@ -9,7 +9,7 @@ y para tener usuarios de prueba fijos en el User Pool de dev.
 | `seed_dev_from_prod.py` | Copia todas las tablas de prod a dev, scrubbeadas, y copia solo activos publicos de S3. |
 | `create_dev_users.py` | Crea usuarios Cognito fijos en el pool de dev y sus membresias en las tablas dev. |
 | `safety.py` | Guardas compartidas (solo dev, region, pool, tablas distintas). |
-| `tests/` | Pruebas unitarias con fixtures y boto3 simulado. No llaman a AWS. |
+| `tests/` | Pruebas unitarias (incluye `test_reset.py`: sync -> mutar dev -> reset) con fixtures y boto3 simulado. No llaman a AWS. |
 
 ## Reglas de seguridad (resumen)
 
@@ -59,11 +59,87 @@ El seed debe correrse **antes** que los usuarios (los usuarios necesitan la cuen
 
 ## Como volver a correrlo
 
-- El seed es idempotente por clave primaria: reescribe los mismos items (los ids y emails falsos son
+- El seed completo es idempotente por clave primaria: reescribe los mismos items (los ids y emails falsos son
   deterministas, asi que dos corridas producen lo mismo). **No borra** items que ya esten en dev; si quieres
   una copia limpia, vacia las tablas dev manualmente antes (cuidado: solo dev).
 - `create_dev_users.py` reutiliza los usuarios Cognito que ya existen y no pisa items de `User` existentes.
 - La sal del hash es `DEV_SEED_SALT` (variable de entorno, opcional). Cambiarla cambia todos los datos falsos.
+
+## Sincronizar y resetear UNA cuenta (flujo principal)
+
+Caso de uso: traer una cuenta de prod a dev, ensuciarla con pruebas y volver a dejarla **exactamente** igual
+a prod (con PII scrubbeada).
+
+Flags de `seed_dev_from_prod.py`:
+
+| Flag | Efecto |
+|---|---|
+| `--account-id ID` | Copia solo los datos de esa cuenta (de todas las tablas). No se puede combinar con `--limit`. La cuenta `dev-torneos` (personas) se rechaza: no existe en prod. |
+| `--reset` | Requiere `--account-id`. Ademas de insertar/actualizar, **borra de dev** las filas de esa cuenta que no existan en el snapshot de prod. |
+| `--confirm` | Escribe. Sin esto todo es dry-run. |
+| `--i-understand-this-deletes` | Obligatorio cuando `--reset` va con `--confirm`. |
+| `--force-large-delete` | Permite que el reset borre mas del 50% de las filas de la cuenta en dev (por defecto aborta). |
+| `--tables a b` | Limita a esas tablas (ej. resetear solo `product`). |
+
+Paso a paso:
+
+```bash
+# 1. Primera vez: sincronizar la cuenta (dry-run y luego real)
+$PY seed_dev_from_prod.py --profile P --account-id mi-club
+$PY seed_dev_from_prod.py --profile P --account-id mi-club --confirm
+
+# 2. (si aun no existen) crear personas
+DEV_USERS_PASSWORD='...' $PY create_dev_users.py --profile P --club-account-id mi-club --confirm
+
+# 3. Probar y ensuciar datos en dev...
+
+# 4. Reset: primero dry-run. Imprime por tabla: origen / upsert / sin_cambios / borrar (solo conteos)
+$PY seed_dev_from_prod.py --profile P --account-id mi-club --reset
+
+# 5. Reset real
+$PY seed_dev_from_prod.py --profile P --account-id mi-club --reset --confirm --i-understand-this-deletes
+
+# Solo una tabla
+$PY seed_dev_from_prod.py --profile P --account-id mi-club --reset --tables product --confirm --i-understand-this-deletes
+```
+
+Resultado de un reset: filas modificadas se restauran, filas borradas se recrean, filas agregadas en dev se
+eliminan. Solo se escriben las filas que difieren. Es idempotente: los ids y valores falsos son deterministas
+(misma sal), asi que correrlo dos veces seguidas no cambia nada. Los activos publicos de S3 de la cuenta se
+vuelven a copiar `prod/` -> `dev/` (los objetos de S3 en dev **nunca** se borran).
+
+### Como se decide a que cuenta pertenece una fila
+
+| Tabla | Regla |
+|---|---|
+| Account | `id == account-id` (solo upsert) |
+| Workspace, PaymentRequest, Calendar, Tour, Product, Order, File, Tournament, Votation, TournamentInvitation, TrainingSession, ClubTournament, ClubRoster, ClubMatch | atributo `account_id == account-id` |
+| Memberships | atributo `ACCOUNT_ID == account-id` |
+| User | solo usuarios referenciados por las membresias de la cuenta (`USER_ID`). **Nunca se borran** (se comparten entre cuentas) |
+| TournamentTeam, TournamentPlayer, TournamentMatch | no tienen `account_id`: se resuelven por `tournament_id` -> torneos de la cuenta |
+| TournamentMatchEvent | por `match_id` -> partidos de torneos de la cuenta |
+| Notification | por `user_email` -> emails de los usuarios de la cuenta (en dev, el email falso) |
+| Donation | **omitida con aviso**: es una campana global sin atributo de cuenta ni padre |
+
+### Que se borra en un reset y que nunca
+
+- Se borra (solo con `--reset --confirm --i-understand-this-deletes`): filas de dev de las tablas anteriores, salvo
+  `User`/`Account`, que pertenezcan a la cuenta y cuya clave primaria no este en el snapshot de prod. Antes de borrar,
+  cada fila se vuelve a verificar contra la regla de propiedad.
+- **Nunca** se borra: filas `User` y `Account`; filas de otras cuentas; Donation; objetos S3; las **personas** de
+  `create_dev_users.py` (usuarios con email `dev.*@example.test`, sus membresias en la cuenta y los workspaces que esas
+  membresias referencian), para que los logins sigan funcionando; la cuenta `dev-torneos`.
+- Tope de seguridad: si el reset borraria mas del 50% de las filas de la cuenta en dev, aborta antes de escribir nada
+  (usa `--force-large-delete` si de verdad es lo que quieres: por ejemplo, la primera sincronizacion sobre datos viejos).
+- Si una tabla destino coincide con una de prod, o el destino no es el stack dev, se rechaza.
+
+### Recuperacion si reseteaste la cuenta equivocada
+
+Las tablas dev tienen PITR (point-in-time recovery): restaura la tabla a un momento anterior al reset
+(`aws dynamodb restore-table-to-point-in-time --source-table-name <tabla dev> --target-table-name <nueva> --restore-date-time ...`),
+luego copia los items que necesites a la tabla original (o cambia el stack para apuntar a la restaurada). El reset solo
+escribe en dev; prod no se modifica nunca. Como los datos de dev son scrubbeados y regenerables, tambien puedes volver
+a correr el sync/reset de la cuenta correcta.
 
 ## Que se scrubbea
 

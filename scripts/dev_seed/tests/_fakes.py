@@ -92,6 +92,18 @@ class FakeTable:
 
             def put_item(self_, Item):
                 table.store.puts.append((table.name, Item))
+                keys = overwrite_by_pkeys or ["id"]
+                rows = table.store.data.setdefault(table.name, [])
+                for idx, row in enumerate(rows):
+                    if all(row.get(k) == Item.get(k) for k in keys):
+                        rows[idx] = Item
+                        return
+                rows.append(Item)
+
+            def delete_item(self_, Key):
+                table.store.deletes.append((table.name, Key))
+                rows = table.store.data.get(table.name, [])
+                rows[:] = [r for r in rows if not all(r.get(k) == v for k, v in Key.items())]
         return BW()
 
 
@@ -99,6 +111,7 @@ class FakeDynamo:
     def __init__(self, data=None):
         self.data = data or {}
         self.puts = []
+        self.deletes = []
         self.tables_requested = []
 
     def Table(self, name):

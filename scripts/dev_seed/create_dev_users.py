@@ -30,7 +30,7 @@ import safety  # noqa: E402
 from seed_dev_from_prod import TABLE_OUTPUTS, resolve_tables, stack_outputs  # noqa: E402
 
 PASSWORD_ENV = "DEV_USERS_PASSWORD"
-TOURNAMENT_ACCOUNT_ID = "dev-torneos"
+TOURNAMENT_ACCOUNT_ID = safety.PERSONA_ACCOUNT_ID
 TOURNAMENT_WORKSPACE_ID = "ws_dev_torneos"
 
 # key, email, nombre, rol de membresia, custom:role en Cognito, cuenta ("club"|"tournament")
