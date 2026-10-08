@@ -477,6 +477,22 @@ class JmanageInfraStack(Stack):
             ),
             projection_type=dynamodb.ProjectionType.ALL,
         )
+
+        # GSI: listado de productos por cuenta (tenant). Reemplaza el scan.
+        # Nota: CloudFormation solo permite crear/borrar UN GSI por update;
+        # este es el unico cambio de GSI en este deploy.
+        product_table.add_global_secondary_index(
+            index_name="account_id_index",
+            partition_key=dynamodb.Attribute(
+                name="account_id",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            sort_key=dynamodb.Attribute(
+                name="id",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
         pool = cognito.UserPool(
             self, "JmanageUserPool", 
             account_recovery=cognito.AccountRecovery.EMAIL_ONLY, 
@@ -529,6 +545,7 @@ class JmanageInfraStack(Stack):
                 "WORKSPACE_TABLE_NAME": workspace_table.table_name,
                 "MEMBERSHIPS_TABLE_NAME": memberships_table.table_name,
                 "PRODUCT_TABLE_NAME": product_table.table_name,
+                "PRODUCT_ACCOUNT_GSI": "account_id_index",
                 "ORDER_TABLE_NAME": order_table.table_name,
                 "ACCOUNT_TABLE_NAME": account_table.table_name,
                 "FILE_TABLE_NAME": file_table.table_name,
