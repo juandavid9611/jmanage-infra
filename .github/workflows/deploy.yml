@@ -23,11 +23,29 @@ jobs:
           path: jmanage-infra
 
       # Checkout API alongside infra so CDK can find ../jmanage-api/lambda_function.zip
+      # Use the API branch with the same name as the infra branch being deployed
+      # (develop -> develop, main -> main). Fall back to the API default branch
+      # if no such ref exists (e.g. workflow_dispatch from a feature branch).
+      - name: Resolve API ref
+        id: api_ref
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          API_REPO: ${{ github.repository_owner }}/jmanage-api
+          INFRA_REF: ${{ github.ref_name }}
+        run: |
+          if git ls-remote --exit-code --heads "https://x-access-token:${GH_TOKEN}@github.com/${API_REPO}.git" "$INFRA_REF" >/dev/null 2>&1; then
+            echo "ref=$INFRA_REF" >> "$GITHUB_OUTPUT"
+          else
+            echo "API branch '$INFRA_REF' not found; using default branch"
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout API
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/jmanage-api
           path: jmanage-api
+          ref: ${{ steps.api_ref.outputs.ref }}
           token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v5
