@@ -288,6 +288,9 @@ def plan_account(args: argparse.Namespace, ddb: Any, prod_tables: dict[str, str]
                   | {u["email"] for u in src_user_scrubbed if u.get("email")}) - safety.persona_emails()
 
     def preserved(key: str, item: dict) -> bool:
+        # datos sinteticos de seed_test_data.py (ids td-) sobreviven al reset
+        if str(item.get("id", "")).startswith("td-"):
+            return True
         if key == "memberships":
             return item.get("USER_ID") in persona_ids
         if key == "workspace":

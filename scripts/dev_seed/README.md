@@ -154,6 +154,39 @@ luego copia los items que necesites a la tabla original (o cambia el stack para 
 escribe en dev; prod no se modifica nunca. Como los datos de dev son scrubbeados y regenerables, tambien puedes volver
 a correr el sync/reset de la cuenta correcta.
 
+## Datos de prueba sinteticos (`seed_test_data.py`)
+
+Para cuentas que en prod no tienen datos (ej. `vittoriacd`: 0 productos, ordenes, torneos). Crea datos **claramente falsos**
+en DEV. No accede a prod de ninguna forma (solo consulta el stack dev). Todos los ids empiezan con `td-`, por lo que
+re-correrlo es idempotente (put con overwrite solo de ids `td-`; nunca pisa un item que no sea `td-`).
+
+```bash
+# dry-run (solo conteos por tabla)
+$PY seed_test_data.py --profile P --account-id vittoriacd
+# crear
+$PY seed_test_data.py --profile P --account-id vittoriacd --confirm
+# solo una parte: --kind shop|club|bracket|all (default all)
+# borrar SOLO lo creado por este script (items td- y objetos S3 td-)
+$PY seed_test_data.py --profile P --account-id vittoriacd --reset --confirm --i-understand-this-deletes
+```
+
+Requisitos: cuenta ya sincronizada en dev (`seed_dev_from_prod.py`), `create_dev_users.py` ejecutado (las ordenes usan al dueno y a
+una persona `dev.*@example.test`; si no existen se omiten con aviso). `--bracket-account-id` (default `sportsmanagedev`) debe
+ser una cuenta `account_type=tournament` en dev: con `--kind bracket` se rechaza si no lo es; con `--kind all` el bracket se omite con aviso.
+
+| Kind | Que crea |
+|---|---|
+| shop | 8 productos (categorias, tallas y colores variados; 2 con precio de oferta valido `0 < priceSale < price`, uno con centavos; 1 agotado `available=0`; 1 con poco stock `available=2`; 1 `publish=draft`). 2 imagenes PNG validas por producto en `dev/accounts/<cuenta>/products/td-prod-NN/td-NN-i.png`; `cover_url`/`images` guardan la **clave** S3 (igual que `add_images`). 4 ordenes (pending, paid, completed con ambos checks, cancelled) con totales recalculados como el servicio (precio vivo, centavos, descuento, envio); stock/`total_sold` coherentes (la cancelada no cuenta). |
+| club | 2 torneos de club (`Copa Test A`, `Liga Test B`), 14 entradas de plantilla cada uno (12 usuarios reales de la cuenta elegidos de forma determinista por membresias, excluyendo personas, + 2 invitados sin `user_id`), 5 partidos cada uno (3 pasados con alineacion titular/suplente/minutos y no convocados; 2 futuros), `calendar_event_id=None`. |
+| bracket | 1 torneo de liga activo y publico, 4 equipos x 6 jugadores, 6 partidos (todos contra todos, 3 fechas): 4 finalizados con eventos (goles, asistencias, penal, autogol, amarillas, rojas) y 2 programados. Estadisticas materializadas calculadas igual que `recompute_tournament`. |
+
+Notas de forma (derivadas del codigo de `jmanage-api` rama `fix/shop`, sin importarlo): productos con `pk/sk/id/account_id/gsi1..5`;
+ordenes con las claves de `create_order`; `cover_url` de los items de orden es la URL publica del bucket; roster/partidos con
+`workspace_id` = `settings.default_workspace` de la cuenta. Un test verifica que las claves que escriben los repos esten presentes.
+
+Brechas conocidas: no se crean solicitudes de pago (`payment_request_id=None`), ni eventos de calendario, ni equipos con `owner_user_id`,
+ni invitaciones; la ficha de torneo no tiene logo. Un `--reset` por cuenta de `seed_dev_from_prod.py` **preserva** los items `td-`.
+
 ## Que se scrubbea
 
 Todos los valores son falsos y deterministas (mismo valor real -> mismo valor falso en todas las tablas).

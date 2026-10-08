@@ -128,7 +128,20 @@ class FakeDynamo:
 class FakeS3:
     def __init__(self, missing=()):
         self.copies = []
+        self.objects = {}
+        self.deleted = []
         self.missing = set(missing)
+
+    def put_object(self, Bucket, Key, Body, ContentType=None):
+        self.objects[Key] = (Bucket, Body, ContentType)
+
+    def list_objects_v2(self, Bucket, Prefix="", ContinuationToken=None):
+        return {"Contents": [{"Key": k} for k in sorted(self.objects) if k.startswith(Prefix)]}
+
+    def delete_objects(self, Bucket, Delete):
+        for o in Delete["Objects"]:
+            self.objects.pop(o["Key"], None)
+            self.deleted.append(o["Key"])
 
     def copy_object(self, CopySource, Bucket, Key):
         if CopySource["Key"] in self.missing:

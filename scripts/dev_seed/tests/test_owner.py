@@ -112,5 +112,17 @@ class OwnerResetTests(unittest.TestCase):
             del os.environ[safety.DEV_OWNER_EMAIL_ENV]
 
 
+class TestDataPreservedByResetTests(unittest.TestCase):
+    def test_td_items_survive_account_reset(self):
+        ddb = F.FakeDynamo(copy.deepcopy(R.prod_data()))
+        R.sync(ddb)
+        d = R.d
+        ddb.data[d("product")].append({"pk": "PRODUCT#td-prod-01", "sk": "PRODUCT", "id": "td-prod-01", "account_id": R.ACC})
+        ddb.data[d("order")].append({"id": "td-ord-01", "account_id": R.ACC})
+        R.seed.run(R.args(reset=True, confirm=True, i_understand_this_deletes=True), F.FakeSession(F.FakeCF(), ddb))
+        self.assertTrue(any(p.get("id") == "td-prod-01" for p in ddb.data[d("product")]))
+        self.assertTrue(any(o["id"] == "td-ord-01" for o in ddb.data[d("order")]))
+
+
 if __name__ == "__main__":
     unittest.main()
