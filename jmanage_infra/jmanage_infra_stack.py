@@ -266,6 +266,41 @@ class JmanageInfraStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        # ── Club Training & Engagement Features ─────────────────────────
+
+        def club_table(construct_id, extra_gsis=()):
+            table = dynamodb.Table(
+                self, construct_id,
+                partition_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+                billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+                removal_policy=RemovalPolicy.RETAIN,
+                point_in_time_recovery=True,
+            )
+            table.add_global_secondary_index(
+                index_name="account_id_index",
+                partition_key=dynamodb.Attribute(name="account_id", type=dynamodb.AttributeType.STRING),
+                sort_key=dynamodb.Attribute(name="id", type=dynamodb.AttributeType.STRING),
+                projection_type=dynamodb.ProjectionType.ALL,
+            )
+            for index_name, pk_name, sk_name in extra_gsis:
+                table.add_global_secondary_index(
+                    index_name=index_name,
+                    partition_key=dynamodb.Attribute(name=pk_name, type=dynamodb.AttributeType.STRING),
+                    sort_key=dynamodb.Attribute(name=sk_name, type=dynamodb.AttributeType.STRING),
+                    projection_type=dynamodb.ProjectionType.ALL,
+                )
+            return table
+
+        training_session_table = club_table("TrainingSession")
+        club_tournament_table = club_table("ClubTournament")
+        club_roster_table = club_table("ClubRosterEntry", [
+            ("tournament_index", "tournament_id", "id"),
+            ("user_id_index", "user_id", "id"),
+        ])
+        club_match_table = club_table("ClubMatch", [
+            ("tournament_index", "tournament_id", "date"),
+        ])
+
         # ── Tournaments Feature ──────────────────────────────────────────
 
         tournament_table = dynamodb.Table(
@@ -504,6 +539,10 @@ class JmanageInfraStack(Stack):
                 "TOURNAMENT_MATCH_EVENT_TABLE_NAME": tournament_match_event_table.table_name,
                 "TOURNAMENT_INVITATION_TABLE_NAME": tournament_invitation_table.table_name,
                 "VOTATION_TABLE_NAME": votation_table.table_name,
+                "TRAINING_SESSION_TABLE_NAME": training_session_table.table_name,
+                "CLUB_TOURNAMENT_TABLE_NAME": club_tournament_table.table_name,
+                "CLUB_ROSTER_TABLE_NAME": club_roster_table.table_name,
+                "CLUB_MATCH_TABLE_NAME": club_match_table.table_name,
                 "MATCH_MATCHWEEK_GSI": "matchweek_index",
                 "MATCH_STATUS_GSI": "status_index",
                 "NOTIFICATION_TABLE_NAME": notification_table.table_name,
@@ -629,6 +668,22 @@ class JmanageInfraStack(Stack):
             value=votation_table.table_name,
             description="Name of the Votation table")
 
+        CfnOutput(self, "TrainingSessionTableName",
+            value=training_session_table.table_name,
+            description="Name of the TrainingSession table")
+
+        CfnOutput(self, "ClubTournamentTableName",
+            value=club_tournament_table.table_name,
+            description="Name of the ClubTournament table")
+
+        CfnOutput(self, "ClubRosterEntryTableName",
+            value=club_roster_table.table_name,
+            description="Name of the ClubRosterEntry table")
+
+        CfnOutput(self, "ClubMatchTableName",
+            value=club_match_table.table_name,
+            description="Name of the ClubMatch table")
+
         CfnOutput(self, "NotificationTableName",
             value=notification_table.table_name,
             description="Name of the Notification table")
@@ -670,6 +725,10 @@ class JmanageInfraStack(Stack):
         tournament_match_event_table.grant_read_write_data(api);
         tournament_invitation_table.grant_read_write_data(api);
         votation_table.grant_read_write_data(api);
+        training_session_table.grant_read_write_data(api);
+        club_tournament_table.grant_read_write_data(api);
+        club_roster_table.grant_read_write_data(api);
+        club_match_table.grant_read_write_data(api);
         notification_table.grant_read_write_data(api);
         donation_table.grant_read_write_data(api);
         pool.grant(api, "cognito-idp:ListUsers")
