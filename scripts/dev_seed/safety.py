@@ -82,3 +82,22 @@ def assert_syncable_account(account_id: str) -> None:
         raise SafetyError("--account-id vacio.")
     if account_id == PERSONA_ACCOUNT_ID:
         raise SafetyError(f"{PERSONA_ACCOUNT_ID!r} es la cuenta de personas de dev; no existe en prod.")
+
+
+# Usuario principal de pruebas en dev (el dueno). Es un email real, a proposito: se crea en el pool DEV y su fila
+# User lleva el email real. El scrubber NO lo trata de forma especial (en datos de prod se scrubbea como cualquiera).
+DEV_OWNER_EMAIL_DEFAULT = "jd_rodrigueza@javeriana.edu.co"
+DEV_OWNER_EMAIL_ENV = "DEV_OWNER_EMAIL"
+
+
+def owner_email() -> str:
+    import os
+    email = (os.environ.get(DEV_OWNER_EMAIL_ENV) or DEV_OWNER_EMAIL_DEFAULT).strip().lower()
+    if "@" not in email or " " in email:
+        raise SafetyError(f"{DEV_OWNER_EMAIL_ENV} no es un email valido.")
+    return email
+
+
+def persona_emails() -> frozenset:
+    """Personas example.test + el dueno. Un reset nunca las borra."""
+    return PERSONA_EMAILS | {owner_email()}

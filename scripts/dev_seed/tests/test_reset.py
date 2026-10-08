@@ -228,7 +228,7 @@ class FlagTests(unittest.TestCase):
         self.assertEqual(ddb.deletes, [])
 
     def test_persona_emails_match_create_dev_users(self):
-        self.assertEqual({x["email"] for x in cdu.PERSONAS}, set(safety.PERSONA_EMAILS))
+        self.assertEqual({x["email"] for x in cdu.PERSONAS} - {safety.owner_email()}, set(safety.PERSONA_EMAILS))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 """Crea usuarios de prueba fijos en el User Pool de DEV y sus registros en las tablas dev.
 
 Personas (todas con emails @example.test, password desde env/prompt, nunca en el codigo):
-  admin, coach, user          -> cuenta club
+  owner (email real, DEV_OWNER_EMAIL), admin, coach, user -> cuenta club
   team_owner, torneos_admin   -> cuenta tipo torneo ("dev-torneos", se crea si no existe)
   admin ademas es admin de la cuenta de torneos.
 
@@ -37,6 +37,8 @@ TOURNAMENT_WORKSPACE_ID = "ws_dev_torneos"
 PERSONAS: list[dict[str, str]] = [
     {"key": "admin", "email": "dev.admin@example.test", "name": "Dev Admin",
      "role": "admin", "cognito_role": "admin", "account": "club"},
+    {"key": "owner", "email": safety.owner_email(), "name": os.environ.get("DEV_OWNER_NAME", "Dev Owner"),
+     "role": "admin", "cognito_role": "admin", "account": "club"},
     {"key": "coach", "email": "dev.coach@example.test", "name": "Dev Coach",
      "role": "coach", "cognito_role": "user", "account": "club"},
     {"key": "user", "email": "dev.user@example.test", "name": "Dev User",
@@ -47,7 +49,7 @@ PERSONAS: list[dict[str, str]] = [
      "role": "admin", "cognito_role": "admin", "account": "tournament"},
 ]
 # Membresias extra: persona -> [(cuenta, rol)]
-EXTRA_MEMBERSHIPS = {"admin": [("tournament", "admin")]}
+EXTRA_MEMBERSHIPS = {"admin": [("tournament", "admin")], "owner": [("tournament", "admin")]}
 
 NEEDED_TABLES = ("user", "account", "workspace", "memberships")
 
@@ -207,6 +209,7 @@ def run(args: argparse.Namespace, session: Any, password: str | None) -> dict[st
                 "tournament": (TOURNAMENT_ACCOUNT_ID, TOURNAMENT_WORKSPACE_ID)}
 
     summary: dict[str, Any] = {"mode": "confirm" if args.confirm else "dry-run",
+                               "personas": [p["key"] for p in PERSONAS],
                                "cognito_created": 0, "cognito_existing": 0, "users_written": 0,
                                "memberships_written": 0, "accounts_created": 0, "workspaces_created": 0}
 
@@ -241,6 +244,15 @@ def run(args: argparse.Namespace, session: Any, password: str | None) -> dict[st
     return summary
 
 
+def format_summary(summary: dict[str, Any]) -> str:
+    """Solo etiquetas de persona y conteos: nunca emails ni nombres."""
+    lines = [f"Modo: {summary['mode']}"]
+    lines += [f"  {k}: {v}" for k, v in summary.items() if k != "mode"]
+    if summary["mode"] == "dry-run":
+        lines.append("DRY-RUN: no se creo nada. Usa --confirm para crear los usuarios.")
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--profile", help="Perfil de AWS con escritura en dev")
@@ -264,12 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     except (safety.SafetyError, ValueError) as exc:
         print(f"RECHAZADO: {exc}", file=sys.stderr)
         return 2
-    print(f"Modo: {summary['mode']}")
-    for k, v in summary.items():
-        if k != "mode":
-            print(f"  {k}: {v}")
-    if summary["mode"] == "dry-run":
-        print("DRY-RUN: no se creo nada. Usa --confirm para crear los usuarios.")
+    print(format_summary(summary))
     return 0
 
 

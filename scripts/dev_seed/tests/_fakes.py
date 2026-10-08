@@ -78,7 +78,13 @@ class FakeTable:
             if any(i.get(attr) == Item[attr] for i in self.store.data.get(self.name, [])):
                 raise FakeClientError("ConditionalCheckFailedException")
         self.store.puts.append((self.name, Item))
-        self.store.data.setdefault(self.name, []).append(Item)
+        keys = ["PK", "SK"] if "PK" in Item else ["pk", "sk"] if "pk" in Item else ["id"]
+        rows = self.store.data.setdefault(self.name, [])
+        for idx, row in enumerate(rows):
+            if all(row.get(k) == Item.get(k) for k in keys):
+                rows[idx] = Item
+                return
+        rows.append(Item)
 
     def batch_writer(self, overwrite_by_pkeys=None):
         table = self

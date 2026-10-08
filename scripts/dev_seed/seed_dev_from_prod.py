@@ -278,14 +278,14 @@ def plan_account(args: argparse.Namespace, ddb: Any, prod_tables: dict[str, str]
     # --- destino (dev, ya scrubbeado) ---
     dst = AccountScope(acc)
     dev_users = dev.get("user")
-    persona_ids = {u["id"] for u in dev_users if u.get("email") in safety.PERSONA_EMAILS}
+    persona_ids = {u["id"] for u in dev_users if u.get("email") in safety.persona_emails()}
     dev_members = [m for m in dev.get("memberships") if m.get("ACCOUNT_ID") == acc]
     persona_ws = {m.get("WORKSPACE_ID") for m in dev_members if m.get("USER_ID") in persona_ids}
     _derive_ownership(dst, dev)
     dst.member_user_ids = {m["USER_ID"] for m in dev_members if m.get("USER_ID") and m["USER_ID"] not in persona_ids}
     src_user_scrubbed = [scrubber.scrub_item("user", u) for u in user_items if u.get("id") in src.member_user_ids]
     dst.emails = ({u["email"] for u in dev_users if u.get("id") in dst.member_user_ids and u.get("email")}
-                  | {u["email"] for u in src_user_scrubbed if u.get("email")}) - safety.PERSONA_EMAILS
+                  | {u["email"] for u in src_user_scrubbed if u.get("email")}) - safety.persona_emails()
 
     def preserved(key: str, item: dict) -> bool:
         if key == "memberships":

@@ -43,7 +43,7 @@ class CreateUsersTests(unittest.TestCase):
         self.assertEqual(set(cog.pools), {safety.DEV_POOL_ID})
         self.assertEqual(summary["accounts_created"], 1)
         memberships = [i for t, i in ddb.puts if t.endswith("-memberships")]
-        self.assertEqual(len(memberships), len(cdu.PERSONAS) + 1)
+        self.assertEqual(len(memberships), len(cdu.PERSONAS) + 2)  # admin y owner tambien en torneos
         admin_sub = "sub-dev.admin@example.test"
         roles = {(m["ACCOUNT_ID"], m["role"]) for m in memberships if m["USER_ID"] == admin_sub}
         self.assertEqual(roles, {("club1", "admin"), (cdu.TOURNAMENT_ACCOUNT_ID, "admin")})
@@ -93,7 +93,7 @@ class CreateUsersTests(unittest.TestCase):
         import inspect
         src = inspect.getsource(cdu)
         self.assertNotIn("Password=\"", src)
-        self.assertEqual([p["email"] for p in cdu.PERSONAS if not p["email"].endswith("@example.test")], [])
+        self.assertEqual([p["email"] for p in cdu.PERSONAS if not p["email"].endswith("@example.test") and p["key"] != "owner"], [])
 
 
 if __name__ == "__main__":

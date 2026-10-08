@@ -74,7 +74,20 @@ Flags de `seed_dev_from_prod.py`:
 
 | Flag | Efecto |
 |---|---|
-| `--account-id ID` | Copia solo los datos de esa cuenta (de todas las tablas). No se puede combinar con `--limit`. La cuenta `dev-torneos` (personas) se rechaza: no existe en prod. |
+| `--account-id ID` | Copia solo los datos de esa cuenta (de todas las tablas). No se puede combinar con `--limit`. ### Entrar a dev como el dueno (usuario principal)
+
+1. Corre `create_dev_users.py ... --confirm` con `DEV_USERS_PASSWORD` (puedes cambiar el email con `DEV_OWNER_EMAIL=otro@dominio`).
+   El usuario se crea en el pool **dev** (`us-west-2_CTvMrsxtC`) con `MessageAction=SUPPRESS`: no se envia correo de invitacion
+   y el password queda permanente.
+2. En la web de dev inicia sesion con `jd_rodrigueza@javeriana.edu.co` y el password que pusiste en `DEV_USERS_PASSWORD`.
+   Es admin de la cuenta club sincronizada y de `dev-torneos`. Re-correr el script es idempotente.
+3. Su fila `User` lleva el email real a proposito (eres tu). El scrubber **no** tiene caso especial: ese email, si aparece
+   en datos de prod, se reemplaza igual que cualquier otro. Un `--reset` nunca borra al dueno (se identifica por email,
+   su id, sus membresias en la cuenta y los workspaces que esas membresias referencian). La salida del dry-run solo
+   muestra etiquetas de persona (`owner`, `admin`...), nunca emails.
+4. Si el dueno ya tenia sesion en prod, usa un password distinto: el pool dev es independiente.
+
+La cuenta `dev-torneos` (personas) se rechaza: no existe en prod. |
 | `--reset` | Requiere `--account-id`. Ademas de insertar/actualizar, **borra de dev** las filas de esa cuenta que no existan en el snapshot de prod. |
 | `--confirm` | Escribe. Sin esto todo es dry-run. |
 | `--i-understand-this-deletes` | Obligatorio cuando `--reset` va con `--confirm`. |
@@ -127,7 +140,7 @@ vuelven a copiar `prod/` -> `dev/` (los objetos de S3 en dev **nunca** se borran
   `User`/`Account`, que pertenezcan a la cuenta y cuya clave primaria no este en el snapshot de prod. Antes de borrar,
   cada fila se vuelve a verificar contra la regla de propiedad.
 - **Nunca** se borra: filas `User` y `Account`; filas de otras cuentas; Donation; objetos S3; las **personas** de
-  `create_dev_users.py` (usuarios con email `dev.*@example.test`, sus membresias en la cuenta y los workspaces que esas
+  `create_dev_users.py` (usuarios con email `dev.*@example.test` y el dueno, sus membresias en la cuenta y los workspaces que esas
   membresias referencian), para que los logins sigan funcionando; la cuenta `dev-torneos`.
 - Tope de seguridad: si el reset borraria mas del 50% de las filas de la cuenta en dev, aborta antes de escribir nada
   (usa `--force-large-delete` si de verdad es lo que quieres: por ejemplo, la primera sincronizacion sobre datos viejos).
@@ -192,6 +205,7 @@ Emails fijos `@example.test` (no reciben correo; el pool los crea con `MessageAc
 | Persona | Email | Rol | Cuenta |
 |---|---|---|---|
 | admin | `dev.admin@example.test` | admin | club (y admin de la cuenta de torneos) |
+| **owner** (principal) | `jd_rodrigueza@javeriana.edu.co` (o `DEV_OWNER_EMAIL`) | admin | club y `dev-torneos` |
 | coach | `dev.coach@example.test` | coach | club |
 | user | `dev.user@example.test` | user | club |
 | team_owner | `dev.teamowner@example.test` | team_owner | `dev-torneos` (tipo torneo) |
